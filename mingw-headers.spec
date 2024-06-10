@@ -13,7 +13,7 @@ Version:        11.0.1
 Release:        3%{?dist}
 Summary:        Win32/Win64 header files
 
-License:        Public Domain and LGPLv2+ and ZPLv2.1
+License:        BSD-3-Clause AND LGPL-2.0-or-later AND LGPL-2.1-or-later AND GPL-2.0-or-later AND ZPL-2.1 AND MIT-Khronous-old AND LicenseRef-Fedora-Public-Domain
 URL:            http://mingw-w64.sourceforge.net/
 Source0:        http://downloads.sourceforge.net/mingw-w64/mingw-w64-v%{version}%{?pre:-%{pre}}.tar.bz2
 
