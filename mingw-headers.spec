@@ -1,4 +1,5 @@
 %global mingw_build_ucrt64 1
+%global mingw_build_ucrtarm64 1
 # The mingw-w64-headers provide the headers pthread_time.h
 # and pthread_unistd.h by default and are dummy headers.
 # The real implementation for these headers is in a separate
@@ -8,9 +9,17 @@
 # a file conflict with the winpthreads headers.
 %global bundle_dummy_pthread_headers 0
 
+# ucrtarm64-winpthreads is built against these headers, so it cannot exist the
+# first time they are built.  "--with bootstrap" keeps the dummy pthread
+# headers for the ucrtarm64 target and does not require winpthreads for it;
+# %%dist appends ~bootstrap, so the regular build supersedes it at the same
+# release.  The other targets use %%bundle_dummy_pthread_headers, which is
+# global; this flag is scoped to the one target.
+%bcond_with bootstrap
+
 Name:           mingw-headers
 Version:        13.0.0
-Release:        3%{?dist}
+Release:        3.1%{?dist}
 Summary:        Win32/Win64 header files
 
 License:        BSD-3-Clause AND LGPL-2.0-or-later AND LGPL-2.1-or-later AND GPL-2.0-or-later AND ZPL-2.1 AND MIT-Khronos-old AND LicenseRef-Fedora-Public-Domain
@@ -29,6 +38,15 @@ BuildRequires: make
 BuildRequires: mingw32-filesystem >= 133
 BuildRequires: mingw64-filesystem >= 133
 BuildRequires: ucrt64-filesystem >= 133
+BuildRequires: ucrtarm64-filesystem >= 152
+# For %%check only: nothing here is compiled, but the headers are only useful
+# if the ucrtarm64 compiler can actually parse them.
+BuildRequires: ucrtarm64-clang
+%if %{without bootstrap}
+# Also for %%check: outside the bootstrap pass the three pthread headers are no
+# longer ours, so <signal.h> and <unistd.h> only resolve with these installed.
+BuildRequires: ucrtarm64-winpthreads
+%endif
 
 
 %description
@@ -65,6 +83,16 @@ Requires:       ucrt64-winpthreads
 %description -n ucrt64-headers
 MinGW Windows cross-compiler Win64 header files.
 
+%package -n ucrtarm64-headers
+Summary:        MinGW Windows cross-compiler Windows on ARM64 header files
+Requires:       ucrtarm64-filesystem >= 152
+%if %{without bootstrap}
+Requires:       ucrtarm64-winpthreads
+%endif
+
+%description -n ucrtarm64-headers
+MinGW Windows cross-compiler Windows on ARM64 header files.
+
 
 %prep
 %autosetup -p1 -n mingw-w64-v%{version}%{?pre:-%{pre}}
@@ -74,6 +102,8 @@ MinGW Windows cross-compiler Win64 header files.
 export MINGW32_CONFIGURE_ARGS="--with-default-msvcrt=msvcrt"
 export MINGW64_CONFIGURE_ARGS="--with-default-msvcrt=msvcrt"
 export UCRT64_CONFIGURE_ARGS="--with-default-msvcrt=ucrt"
+# Windows on ARM64 is UCRT only.
+export UCRTARM64_CONFIGURE_ARGS="--with-default-msvcrt=ucrt"
 
 pushd mingw-w64-headers
     %mingw_configure --enable-sdk=all --enable-idl
@@ -98,6 +128,45 @@ rm -f %{buildroot}%{ucrt64_includedir}/pthread_time.h
 rm -f %{buildroot}%{ucrt64_includedir}/pthread_unistd.h
 %endif
 
+# Same for ucrtarm64.  A bootstrap build keeps them: ucrtarm64-winpthreads
+# does not exist at that point.
+%if %{without bootstrap}
+rm -f %{buildroot}%{ucrtarm64_includedir}/pthread_signal.h
+rm -f %{buildroot}%{ucrtarm64_includedir}/pthread_time.h
+rm -f %{buildroot}%{ucrtarm64_includedir}/pthread_unistd.h
+%endif
+
+
+%check
+%if 0%{?mingw_build_ucrtarm64} == 1
+# Compile a smoke test with the ucrtarm64 compiler: nothing else here puts
+# the headers in front of one.  The -isystem buildroot dir is searched first,
+# so this build's headers shadow the installed ones; the three pthread
+# headers are not shipped here and fall through to ucrtarm64-winpthreads.
+cat > _smoke.c <<'EOF'
+#include <windows.h>
+#include <signal.h>
+#include <unistd.h>
+#include <stdio.h>
+
+#ifndef _ARM64_
+#error "_ARM64_ is not defined for the aarch64-w64-mingw32 target"
+#endif
+#if __MSVCRT_VERSION__ != 0xE00
+#error "__MSVCRT_VERSION__ is not UCRT"
+#endif
+
+int main(void) {
+    printf("%lu\n", (unsigned long) GetCurrentProcessId());
+    return 0;
+}
+EOF
+# -isystem, not --sysroot: clang's own resource headers (stddef.h, stdarg.h)
+# are still needed.
+aarch64-w64-mingw32-clang -c _smoke.c -o _smoke.o \
+    -isystem %{buildroot}%{ucrtarm64_includedir}
+%endif
+
 
 %files -n mingw32-headers
 %license COPYING DISCLAIMER DISCLAIMER.PD
@@ -111,8 +180,19 @@ rm -f %{buildroot}%{ucrt64_includedir}/pthread_unistd.h
 %license COPYING DISCLAIMER DISCLAIMER.PD
 %{ucrt64_includedir}/*
 
+%files -n ucrtarm64-headers
+%license COPYING DISCLAIMER DISCLAIMER.PD
+%{ucrtarm64_includedir}/*
+
 
 %changelog
+* Thu Aug 06 2026 Erik Berg <fedora@slipsprogrammor.no> - 13.0.0-3.1
+- Add ucrtarm64-headers for the Windows on ARM64 target, with
+  --with-default-msvcrt=ucrt: Windows on ARM64 is UCRT only
+- Build with "--with bootstrap" to reproduce the stack bring-up pass, which
+  keeps the dummy pthread headers and does not require winpthreads
+- Check the staged headers against the ucrtarm64-clang driver
+
 * Fri Jan 16 2026 Fedora Release Engineering <releng@fedoraproject.org> - 13.0.0-3
 - Rebuilt for https://fedoraproject.org/wiki/Fedora_44_Mass_Rebuild
 
